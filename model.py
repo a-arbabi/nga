@@ -10,7 +10,8 @@ def linear(x, name, shape):
 
 class Config:
 	x_dim = 28*28
-	z_dim = 20
+	z_dim = 2
+	#z_dim = 20
 	encode_layer1_size = 500
 	encode_layer2_size = 500
 	decode_layer1_size = 500
@@ -121,10 +122,18 @@ class NGA:
 		return self.sess.run(self.x_recon_theta, 
 				feed_dict={self.x: X})
 
+	def save(self, rep_dir):
+		saver = tf.train.Saver()
+		saver.save(self.sess, rep_dir+'/training.ckpt')
+
+	def load(self, rep_dir):
+		saver = tf.train.Saver()
+		saver.restore(self.sess, rep_dir + '/training.ckpt')
+
 def train(nga, mnist):
 	# Training cycle
 	display_step = 5
-	for epoch in range(10):
+	for epoch in range(20):
 		avg_cost = 0.
 		batch_size = nga.config.batch_size
 		n_samples = mnist.train.num_examples
@@ -148,15 +157,24 @@ def train(nga, mnist):
 		if epoch % display_step == 0:
 			print "Epoch:", '%04d' % (epoch+1), \
 					"cost=", "{:.9f}".format(avg_cost)
-	return vae
+	nga.save('checkpoints')
 
-
+def plot_latent(nga, mnist):
+	x_sample, y_sample = mnist.test.next_batch(5000)
+	z_mu = nga.transform(x_sample)
+	plt.figure(figsize=(8, 6)) 
+	plt.scatter(z_mu[:, 0], z_mu[:, 1], c=np.argmax(y_sample, 1))
+	plt.colorbar()
+	plt.show()
 
 def main():
 	print 'hello'
 	mnist = input_data.read_data_sets("MNIST_data", one_hot=True)
 	nga = NGA(Config)
-	train(nga, mnist)
+	#train(nga, mnist)
+	nga.load('checkpoints')
+	plot_latent(nga, mnist)
+
 
 
 
