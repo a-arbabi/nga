@@ -4,14 +4,13 @@ from tensorflow.examples.tutorials.mnist import input_data
 import matplotlib.pyplot as plt
 import read_gen
 
-def linear(x, shape):
-	w = weight_variable(shape)
-	b = weight_variable((shape[1]))
+def linear(name, x, shape):
+	w = weight_variable(name + 'W', shape)
+	b = weight_variable(name + 'B',(shape[1]))
 	return tf.matmul(x,w) + b
 
-def weight_variable(shape):
-	initial = tf.truncated_normal(shape, stddev=0.1)
-	return tf.Variable(initial)
+def weight_variable(name, shape):
+	return tf.get_variable(name, shape, initializer=tf.truncated_normal_initializer(stddev = 0.1))
 
 class Config:
 	read_size = 100
@@ -38,7 +37,7 @@ def conv2d_transpose(x, name, filter_shape, output_shape):
 class NGA:
 	def __init__(self, config):
 		self.config = config
-		self.x = tf.placeholder(tf.float32, shape = [None, config.read_size, 4])
+		self.x = tf.placeholder(tf.float32, shape = [None, 1, config.read_size, 4])
 #		self.eps = tf.placeholder(tf.float32, shape = [None, config.z_dim])
 
 
@@ -63,8 +62,8 @@ class NGA:
 		# x.shape = [config.batch_size, 1, config.read_size, 4]
 		with tf.variable_scope('conv1'):
 			# k=10, hid=128
-			kernel = weight_variable([1, 10, 4, 128])
-			bias = weight_variable([128])
+			kernel = weight_variable('w', [1, 10, 4, 128])
+			bias = weight_variable('b', [128])
 			conv = tf.nn.conv2d(self.x, kernel, [1,1,1,1], padding='SAME')
 			conv1 = tf.nn.relu(conv + bias)
 
@@ -77,9 +76,9 @@ class NGA:
 		# pool1.shape = [config.batch_size, 1, config.read_size/2, 128]
 		with tf.variable_scope('conv2'):
 			# k=10, hid=128
-			kernel = weight_variable([1, 10, 128, 128])
-			bias = weight_variable([128])
-			conv = tf.nn.conv2d(self.x, kernel, [1,1,1,1], padding='SAME')
+			kernel = weight_variable('w', [1, 10, 128, 128])
+			bias = weight_variable('b', [128])
+			conv = tf.nn.conv2d(conv1, kernel, [1,1,1,1], padding='SAME')
 			conv2 = tf.nn.relu(conv + bias)
 
 		# pool2
@@ -87,17 +86,18 @@ class NGA:
 		with tf.variable_scope('pool'):
 			pool2 = tf.nn.max_pool(conv2, ksize=[1, 1, 5, 1], strides=[1, 1, 2, 1], padding='SAME')
 
-		# pool2.shape = [config.batch_size, 1, config.read_size/4, 128]
+		# pool2.shape = [config.batch_size, 1, config.read_size/2, 128]
 		with tf.variable_scope('local3') as scope:
 			reshape = tf.reshape(pool2, [self.config.batch_size, -1])
-			dim = reshape.get_shape()[1].value
-			local3 = tf.nn.relu(linear(reshape, [dim, 400]))
+			dim = self.config.read_size * 128 / 2
+			#dim = reshape.get_shape()[1].value
+			local3 = tf.nn.relu(linear('w', reshape, [dim, 400]))
 
 		# local3
 		# local3.shape = [config.batch_size, 400]
-		with tf.variable_scope('local3') as scope:
-			z_mean = linear(local3, (400, self.config.z_dim))
-			z_log_sigma_sq = linear(local3, (400, self.config.z_dim))
+		with tf.variable_scope('z_theta') as scope:
+			z_mean = linear('mean', local3, (400, self.config.z_dim))
+			z_log_sigma_sq = linear('sigma', local3, (400, self.config.z_dim))
 
 		return (z_mean, z_log_sigma_sq)
 
@@ -105,34 +105,36 @@ class NGA:
 		# local1
 		# z.shape = [config.batch_size, config.z_dim]
 		with tf.variable_scope('local1') as scope:
-			local1 = tf.relu(linear(self.z, (self.config.z_dim, 400)))
+			local1 = tf.nn.relu(linear('w', self.z, (self.config.z_dim, 400)))
 
 		# local2
 		# local1.shape = [config.batch_size, 400]
 		with tf.variable_scope('local2') as scope:
-			local2 = tf.relu(linear(local1, (400, 128*config.read_size/4)))
+			local2 = tf.nn.relu(linear('w', local1, (400, 128 * self.config.read_size / 4)))
 
 		# deconv3
 		# local2.shape = [config.batch_size, 128*config.read_size/4]
 		with tf.variable_scope('deconv3') as scope:
-			reshape = tf.reshape(local2, (config.batch_size, 1, config.read_size/4, 128))
-			kernel = weight_variable([1, 10, 128, 128])
-			bias = weight_variable([128])
-			deconv = tf.nn.conv2d_transpose(reshape, kernel, (config.batch_size, 1, config.read_size/2, 128) [1, 1, 1, 1]) 
-			deconv3 = tf.relu(deconv + bias)
+			reshape = tf.reshape(local2, (self.config.batch_size, 1, self.config.read_size/4, 128))
+			kernel = weight_variable('w', [1, 10, 128, 128])
+			bias = weight_variable('b', [128])
+			deconv = tf.nn.conv2d_transpose(reshape, kernel, (self.config.batch_size, 1, self.config.read_size/2, 128), [1, 1, 2, 1]) 
+			deconv3 = tf.nn.relu(deconv + bias)
 
+		# deconv4
+		# deconv3.shape = [config.batch_size, 128*config.read_size/2]
 		with tf.variable_scope('deconv4') as scope:
-			kernel = weight_variable([1, 10, 4, 128])
-			bias = weight_variable([128])
-			deconv = tf.nn.conv2d_transpose(deconv3, kernel, (config.batch_size, 1, config.read_size, 128) [1, 1, 1, 1]) 
-			deconv3 = tf.relu(deconv + bias)
+			kernel = weight_variable('w', [1, 10, 4, 128])
+			bias = weight_variable('b', [4])
+			deconv = tf.nn.conv2d_transpose(deconv3, kernel, (self.config.batch_size, 1, self.config.read_size, 4), [1, 1, 2, 1]) 
+			deconv4 = tf.nn.sigmoid(deconv + bias)
 
-		return deconv3
+		return deconv4
 
 	def create_loss(self):
 		self.reconstr_loss = \
 				-tf.reduce_sum(self.x * tf.log(1e-10 + self.x_recon_theta)
-						+ (1-self.x) * tf.log(1e-10 + 1 - self.x_recon_theta),1)
+						+ (1-self.x) * tf.log(1e-10 + 1 - self.x_recon_theta),[1,2,3])
 		reconstr_loss = self.reconstr_loss
 
 		self.latent_loss = -0.5 * tf.reduce_sum(1 + self.z_log_sigma_sq 
@@ -155,8 +157,13 @@ class NGA:
 		print self.sess.run( self.x_recon_theta, feed_dict={self.x: X})
 		exit()
 		'''
+		X = np.expand_dims(X, 1)
 		opt, cost = self.sess.run((self.optimizer, self.cost), 
 								  feed_dict={self.x: X})
+		'''
+		cost = self.sess.run(self.x_recon_theta, 
+								  feed_dict={self.x: X})
+		'''
 		return cost
 
 	def transform(self, X):
@@ -194,15 +201,17 @@ class NGA:
 
 def train(nga, gen):
 	# Training cycle
-	display_step = 5
+	display_step = 20
 	for epoch in range(20):
+		print "Epoch: " + str(epoch)
 		gen.reset_counter()
-		avg_cost = 0.
+		total_cost = 0.
+		count = 0
 		batch_size = nga.config.batch_size
 		# Loop over all batches
 		while True:
 			batch_xs = gen.read_batch(batch_size) #mnist.train.next_batch(batch_size)
-			if batch_xs == None:
+			if batch_xs is None:
 				break
 
 			'''
@@ -215,12 +224,13 @@ def train(nga, gen):
 			# Fit training using batch data
 			cost = nga.partial_fit(batch_xs)
 			# Compute average loss
-			avg_cost += cost / n_samples * batch_size
+			total_cost += cost 
+			count += 1
 
 		# Display logs per epoch step
-		if epoch % display_step == 0:
-			print "Epoch:", '%04d' % (epoch+1), \
-					"cost=", "{:.9f}".format(avg_cost)
+			if count % display_step == 0:
+				print "Epoch:", '%04d' % (count), \
+					"cost=", "{:.9f}".format(total_cost/count)
 	nga.save('checkpoints')
 
 def plot_latent(nga, mnist):
