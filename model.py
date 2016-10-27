@@ -159,8 +159,8 @@ class NGA:
 		"""
 
 		X = np.expand_dims(X, 1)
-		print "___"
 		'''
+		print "___"
 		print self.sess.run( self.z_log_sigma_sq, feed_dict={self.x: X})
 		print np.max(self.sess.run( self.z_log_sigma_sq, feed_dict={self.x: X}))
 		print np.min(self.sess.run( self.z_log_sigma_sq, feed_dict={self.x: X}))
