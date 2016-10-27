@@ -1,7 +1,7 @@
 import tensorflow as tf
 import numpy as np
 from tensorflow.examples.tutorials.mnist import input_data
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 import read_gen
 
 def linear(name, x, shape):
