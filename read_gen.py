@@ -33,7 +33,9 @@ class ReadGen:
 	def read_batch(self, batch_size):
 		if self.counter + batch_size > self.all_reads_vector.shape[0]:
 			return None
-		return self.all_reads_vector[self.counter:self.counter + batch_size]
+		batch = self.all_reads_vector[self.counter:self.counter + batch_size]
+		self.counter += batch_size
+		return batch
 
 
 
@@ -46,6 +48,8 @@ def main():
 	read_len = 100
 
 	read_gen = ReadGen(args.fa_file, cov, read_len)
+	print read_gen.all_reads_vector.shape
+	return
 	print read_gen.read_batch(3)[0]
 	print read_gen.read_batch(3)[0]
 
