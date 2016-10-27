@@ -19,7 +19,7 @@ class Config:
 	read_size = 100
 	z_dim = 100
 	#z_dim = 20
-	learning_rate = 0.01
+	learning_rate = 0.0001
 	batch_size =256
 
 def conv2d(x, name, shape):
