@@ -14,7 +14,7 @@ def weight_variable(name, shape):
 
 class Config:
 	read_size = 100
-	z_dim = 2
+	z_dim = 100
 	#z_dim = 20
 	learning_rate = 0.001
 	batch_size =50
@@ -66,6 +66,7 @@ class NGA:
 			bias = weight_variable('b', [128])
 			conv = tf.nn.conv2d(self.x, kernel, [1,1,1,1], padding='SAME')
 			conv1 = tf.nn.relu(conv + bias)
+		self.tmp1 = conv1
 
 		# pool1
 		# conv1.shape = [config.batch_size, 1, config.read_size, 128]
@@ -80,6 +81,7 @@ class NGA:
 			bias = weight_variable('b', [128])
 			conv = tf.nn.conv2d(conv1, kernel, [1,1,1,1], padding='SAME')
 			conv2 = tf.nn.relu(conv + bias)
+		self.tmp2 = conv2
 
 		# pool2
 		# conv2.shape = [config.batch_size, 1, config.read_size/2, 128]
@@ -92,6 +94,7 @@ class NGA:
 			dim = self.config.read_size * 128 / 2
 			#dim = reshape.get_shape()[1].value
 			local3 = tf.nn.relu(linear('w', reshape, [dim, 400]))
+		self.tmp3 = local3
 
 		# local3
 		# local3.shape = [config.batch_size, 400]
@@ -133,8 +136,7 @@ class NGA:
 
 	def create_loss(self):
 		self.reconstr_loss = \
-				-tf.reduce_sum(self.x * tf.log(1e-10 + self.x_recon_theta)
-						+ (1-self.x) * tf.log(1e-10 + 1 - self.x_recon_theta),[1,2,3])
+				-tf.reduce_sum(self.x * tf.log(1e-10 + self.x_recon_theta) ,[1,2,3])
 		reconstr_loss = self.reconstr_loss
 
 		self.latent_loss = -0.5 * tf.reduce_sum(1 + self.z_log_sigma_sq 
@@ -151,13 +153,28 @@ class NGA:
 		Return cost of mini-batch.
 		"""
 
+		X = np.expand_dims(X, 1)
+		print "___"
 		'''
+		print self.sess.run( self.z_log_sigma_sq, feed_dict={self.x: X})
+		print np.max(self.sess.run( self.z_log_sigma_sq, feed_dict={self.x: X}))
+		print np.min(self.sess.run( self.z_log_sigma_sq, feed_dict={self.x: X}))
+		print self.sess.run( self.z_mean, feed_dict={self.x: X})
+		print np.max(self.sess.run( self.z_mean, feed_dict={self.x: X}))
+		print np.min(self.sess.run( self.z_mean, feed_dict={self.x: X}))
 		print self.sess.run( self.latent_loss, feed_dict={self.x: X})
+		'''
+		'''
 		print self.sess.run( self.reconstr_loss, feed_dict={self.x: X})
 		print self.sess.run( self.x_recon_theta, feed_dict={self.x: X})
-		exit()
 		'''
-		X = np.expand_dims(X, 1)
+		print np.sum(self.sess.run( self.tmp1, feed_dict={self.x: X}))
+		print np.sum(self.sess.run( self.tmp2, feed_dict={self.x: X}))
+		print 'tmp3 :: ' , np.sum(self.sess.run( self.tmp3, feed_dict={self.x: X}))
+		print 'zmean :: ' , np.sum(self.sess.run( self.z_mean, feed_dict={self.x: X}))
+		print 'zlogsigma :: ' , np.sum(self.sess.run( self.z_log_sigma_sq, feed_dict={self.x: X}))
+		print self.sess.run( self.cost, feed_dict={self.x: X})
+
 		opt, cost = self.sess.run((self.optimizer, self.cost), 
 								  feed_dict={self.x: X})
 		'''
@@ -228,8 +245,8 @@ def train(nga, gen):
 			count += 1
 
 		# Display logs per epoch step
-			if count % display_step == 0:
-				print "Epoch:", '%04d' % (count), \
+			if  True or count % display_step == 0:
+				print "Step:", '%04d' % (count), \
 					"cost=", "{:.9f}".format(total_cost/count)
 	nga.save('checkpoints')
 
