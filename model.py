@@ -261,7 +261,7 @@ def train(nga, gen):
 			count += 1
 
 		# Display logs per epoch step
-			if  True or count % display_step == 0:
+			if  count % display_step == 0:
 				print "Step:", '%04d' % (count), \
 					"cost=", "{:.9f}".format(total_cost/count)
 	nga.save('checkpoints')
