@@ -235,7 +235,7 @@ class NGA:
 def train(nga, gen):
 	# Training cycle
 	display_step = 100
-	for epoch in range(20):
+	for epoch in range(1000):
 		print "Epoch: " + str(epoch)
 		gen.reset_counter()
 		total_cost = 0.
@@ -276,7 +276,7 @@ def plot_latent(nga, mnist):
 
 def main():
 	print 'hello'
-	gen = read_gen.ReadGen('dna_10k.fa', 40, Config.read_size)
+	gen = read_gen.ReadGen('dna_100k.fa', 100, Config.read_size)
 	nga = NGA(Config)
 	train(nga, gen)
 	return
