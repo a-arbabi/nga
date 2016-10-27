@@ -20,7 +20,7 @@ class Config:
 	z_dim = 100
 	#z_dim = 20
 	learning_rate = 0.001
-	batch_size =50
+	batch_size =256
 
 def conv2d(x, name, shape):
 	W = tf.get_variable(name, shape, initializer = tf.contrib.layers.xavier_initializer_conv2d)
