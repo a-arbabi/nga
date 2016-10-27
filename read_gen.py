@@ -4,19 +4,17 @@ import numpy as np
 
 class ReadGen:
 	def __init__(self, fa_file, cov, read_len):
-		seq = open(fa_file).read().strip()
-		total_reads = len(seq)*cov/read_len
+		self.seq = open(fa_file).read().strip()
+		total_reads = len(self.seq)*cov/read_len
 
-		starts = np.random.randint(0,len(seq)-100, total_reads)
+		self.starts = np.random.randint(0,len(self.seq)-100, total_reads)
 
-		self.reads = []
 		self.read_vectors = []
 
-		for i in starts:
-			self.reads.append(seq[i:i+read_len])
-			self.read_vectors.append(self.read2vec(seq[i:i+read_len]))
-
+		for i in self.starts:
+			self.read_vectors.append(self.read2vec(self.seq[i:i+read_len]))
 		self.all_reads_vector = np.vstack(self.read_vectors)
+
 		self.reset_counter()
 
 
@@ -32,11 +30,11 @@ class ReadGen:
 
 	def read_batch(self, batch_size):
 		if self.counter + batch_size > self.all_reads_vector.shape[0]:
-			return None
+			return None, None
 		batch = self.all_reads_vector[self.counter:self.counter + batch_size]
+		starts = self.starts[self.counter:self.counter + batch_size]
 		self.counter += batch_size
-		return batch
-
+		return batch, starts
 
 
 def main():

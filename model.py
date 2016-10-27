@@ -3,6 +3,7 @@ import numpy as np
 from tensorflow.examples.tutorials.mnist import input_data
 #import matplotlib.pyplot as plt
 import read_gen
+import h5py
 
 def linear(name, x, shape):
 	w = weight_variable(name + 'W', shape)
@@ -95,8 +96,8 @@ class NGA:
 
 		# pool2.shape = [config.batch_size, 1, config.read_size/2, 128]
 		with tf.variable_scope('local3') as scope:
-			reshape = tf.reshape(pool2, [self.config.batch_size, -1])
 			dim = self.config.read_size * 128 / 2
+			reshape = tf.reshape(pool2, [-1, dim])
 			#dim = reshape.get_shape()[1].value
 			local3 = tf.nn.relu(linear('w', reshape, [dim, 400]))
 		self.tmp3 = local3
@@ -108,6 +109,38 @@ class NGA:
 			z_log_sigma_sq = linear('sigma', local3, (400, self.config.z_dim))
 
 		return (z_mean, z_log_sigma_sq)
+
+	def decoder_slide(self):
+		# local1
+		# z.shape = [config.batch_size, config.z_dim]
+		with tf.variable_scope('local1') as scope:
+			local1 = tf.nn.relu(linear('w', self.z, (self.config.z_dim, 400)))
+
+		# local2
+		# local1.shape = [config.batch_size, 400]
+		with tf.variable_scope('local2') as scope:
+			local2 = tf.nn.relu(linear('w', local1, (400, 128 * self.config.read_size / 4)))
+
+		# deconv3
+		# local2.shape = [config.batch_size, 128*config.read_size/4]
+		with tf.variable_scope('deconv3') as scope:
+			reshape = tf.reshape(local2, (self.config.batch_size, 1, self.config.read_size/4, 128))
+			kernel = kernel_variable('w', [1, 10, 128, 128])
+			bias = weight_variable('b', [128])
+			deconv = tf.nn.conv2d_transpose(reshape, kernel, (self.config.batch_size, 1, self.config.read_size/2, 128), [1, 1, 2, 1]) 
+			deconv3 = tf.nn.relu(deconv + bias)
+
+		# deconv4
+		# deconv3.shape = [config.batch_size, 1, config.read_size/2, 128]
+		with tf.variable_scope('deconv4') as scope:
+			kernel = kernel_variable('w', [1, 10, 4, 128])
+			bias = weight_variable('b', [4])
+			deconv = tf.nn.conv2d_transpose(deconv3, kernel, (self.config.batch_size, 1, 3*self.config.read_size/2, 4), [1, 1, 2, 1]) 
+			deconv4 = tf.nn.softmax(deconv + bias, dim=-1)
+
+		return deconv4
+
+
 
 	def decoder(self):
 		# local1
@@ -139,6 +172,11 @@ class NGA:
 
 		return deconv4
 
+	def reconstr_loss_slide(self):
+		self.reconstr_loss = \
+				-tf.reduce_logsumexp(self.x * tf.log(1e-10 + self.x_recon_theta) ,[1,2,3])
+		reconstr_loss = self.reconstr_loss
+
 	def create_loss(self):
 		self.reconstr_loss = \
 				-tf.reduce_sum(self.x * tf.log(1e-10 + self.x_recon_theta) ,[1,2,3])
@@ -159,50 +197,15 @@ class NGA:
 		"""
 
 		X = np.expand_dims(X, 1)
-		'''
-		print "___"
-		print self.sess.run( self.z_log_sigma_sq, feed_dict={self.x: X})
-		print np.max(self.sess.run( self.z_log_sigma_sq, feed_dict={self.x: X}))
-		print np.min(self.sess.run( self.z_log_sigma_sq, feed_dict={self.x: X}))
-		print self.sess.run( self.z_mean, feed_dict={self.x: X})
-		print np.max(self.sess.run( self.z_mean, feed_dict={self.x: X}))
-		print np.min(self.sess.run( self.z_mean, feed_dict={self.x: X}))
-		print self.sess.run( self.latent_loss, feed_dict={self.x: X})
-		'''
-		'''
-		print self.sess.run( self.reconstr_loss, feed_dict={self.x: X})
-		print self.sess.run( self.x_recon_theta, feed_dict={self.x: X})
-		'''
-		'''
-		print np.sum(self.sess.run( self.tmp0, feed_dict={self.x: X}))
-		print np.sum(self.sess.run( self.tmp_kernel, feed_dict={self.x: X}))
-		print np.max(self.sess.run( self.tmp_kernel, feed_dict={self.x: X}))
-		print np.min(self.sess.run( self.tmp_kernel, feed_dict={self.x: X}))
-		print (self.sess.run( self.tmp_kernel, feed_dict={self.x: X}))
-		print np.min(self.sess.run( self.x_recon_theta, feed_dict={self.x: X}))
-		print np.sum(self.sess.run( self.x_recon_theta, feed_dict={self.x: X}))
-		print np.sum(self.sess.run( self.reconstr_loss, feed_dict={self.x: X}))
-		print "-"
-		print np.sum(self.sess.run( self.tmp1, feed_dict={self.x: X}))
-		print np.sum(self.sess.run( self.tmp2, feed_dict={self.x: X}))
-		print 'tmp3 :: ' , np.sum(self.sess.run( self.tmp3, feed_dict={self.x: X}))
-		print 'zmean :: ' , np.sum(self.sess.run( self.z_mean, feed_dict={self.x: X}))
-		print 'zlogsigma :: ' , np.sum(self.sess.run( self.z_log_sigma_sq, feed_dict={self.x: X}))
-		print self.sess.run( self.cost, feed_dict={self.x: X})
-		'''
-
 		opt, cost = self.sess.run((self.optimizer, self.cost), 
 								  feed_dict={self.x: X})
-		'''
-		cost = self.sess.run(self.x_recon_theta, 
-								  feed_dict={self.x: X})
-		'''
 		return cost
 
 	def transform(self, X):
 		"""Transform data by mapping it into the latent space."""
 		# Note: This maps to mean of distribution, we could alternatively
 		# sample from Gaussian distribution
+		X = np.expand_dims(X, 1)
 		return self.sess.run(self.z_mean, feed_dict={self.x: X})
 
 	def generate(self, z_mu=None):
@@ -235,7 +238,7 @@ class NGA:
 def train(nga, gen):
 	# Training cycle
 	display_step = 100
-	for epoch in range(1000):
+	for epoch in range(1):
 		print "Epoch: " + str(epoch)
 		gen.reset_counter()
 		total_cost = 0.
@@ -243,7 +246,7 @@ def train(nga, gen):
 		batch_size = nga.config.batch_size
 		# Loop over all batches
 		while True:
-			batch_xs = gen.read_batch(batch_size) #mnist.train.next_batch(batch_size)
+			batch_xs, _ = gen.read_batch(batch_size) #mnist.train.next_batch(batch_size)
 			if batch_xs is None:
 				break
 
@@ -259,6 +262,7 @@ def train(nga, gen):
 			# Compute average loss
 			total_cost += cost 
 			count += 1
+			break
 
 		# Display logs per epoch step
 		if  True or count % display_step == 0:
@@ -266,22 +270,37 @@ def train(nga, gen):
 				"cost=", "{:.9f}".format(total_cost/count)
 	nga.save('checkpoints')
 
-def plot_latent(nga, mnist):
-	x_sample, y_sample = mnist.test.next_batch(5000)
+def create_sample_for_plot(nga, gen):
+	gen.reset_counter()
+	x_sample, y_sample = gen.read_batch(1000)
+	y_sample = np.float64(y_sample) / len(gen.seq)
 	z_mu = nga.transform(x_sample)
-	plt.figure(figsize=(8, 6)) 
-	plt.scatter(z_mu[:, 0], z_mu[:, 1], c=np.argmax(y_sample, 1))
-	plt.colorbar()
+
+	h5f = h5py.File('plot_data.h5', 'w')
+	h5f.create_dataset('z', data=z_mu)
+	h5f.create_dataset('y', data=y_sample)
+	h5f.close()
+	return
+
+
+	vis_data = bh_sne(np.float64(z_mu))
+
+	vis_x = vis_data[:, 0]
+	vis_y = vis_data[:, 1]
+
+	plt.scatter(vis_x, vis_y, c=y_sample) #, cmap=plt.cm.get_cmap("jet", 10))
+	plt.colorbar() #ticks=range(10))
+	plt.clim(0.0, 1.0)
 	plt.show()
 
 def main():
 	print 'hello'
 	gen = read_gen.ReadGen('dna_10k.fa', 100, Config.read_size)
 	nga = NGA(Config)
-	train(nga, gen)
-	return
+	#train(nga, gen)
 	nga.load('checkpoints')
-	plot_latent(nga, mnist)
+	create_sample_for_plot(nga, gen)
+	return
 
 
 
