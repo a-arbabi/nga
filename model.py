@@ -234,7 +234,7 @@ class NGA:
 
 def train(nga, gen):
 	# Training cycle
-	display_step = 100
+	display_step = 1000
 	for epoch in range(20):
 		print "Epoch: " + str(epoch)
 		gen.reset_counter()
