@@ -276,7 +276,7 @@ def plot_latent(nga, mnist):
 
 def main():
 	print 'hello'
-	gen = read_gen.ReadGen('dna_100k.fa', 100, Config.read_size)
+	gen = read_gen.ReadGen('dna_10k.fa', 100, Config.read_size)
 	nga = NGA(Config)
 	train(nga, gen)
 	return
