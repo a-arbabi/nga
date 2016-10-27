@@ -9,8 +9,11 @@ def linear(name, x, shape):
 	b = weight_variable(name + 'B',(shape[1]))
 	return tf.matmul(x,w) + b
 
+def kernel_variable(name, shape):
+	return tf.get_variable(name, shape, initializer=tf.contrib.layers.xavier_initializer_conv2d())
+
 def weight_variable(name, shape):
-	return tf.get_variable(name, shape, initializer=tf.truncated_normal_initializer(stddev = 0.1))
+	return tf.get_variable(name, shape, initializer=tf.truncated_normal_initializer(stddev = 0.02))
 
 class Config:
 	read_size = 100
@@ -60,9 +63,11 @@ class NGA:
 	def encoder(self):
 		# conv1
 		# x.shape = [config.batch_size, 1, config.read_size, 4]
+		self.tmp0 = self.x
 		with tf.variable_scope('conv1'):
 			# k=10, hid=128
-			kernel = weight_variable('w', [1, 10, 4, 128])
+			kernel = kernel_variable('w', [1, 10, 4, 128])
+			self.tmp_kernel = kernel
 			bias = weight_variable('b', [128])
 			conv = tf.nn.conv2d(self.x, kernel, [1,1,1,1], padding='SAME')
 			conv1 = tf.nn.relu(conv + bias)
@@ -77,7 +82,7 @@ class NGA:
 		# pool1.shape = [config.batch_size, 1, config.read_size/2, 128]
 		with tf.variable_scope('conv2'):
 			# k=10, hid=128
-			kernel = weight_variable('w', [1, 10, 128, 128])
+			kernel = kernel_variable('w', [1, 10, 128, 128])
 			bias = weight_variable('b', [128])
 			conv = tf.nn.conv2d(conv1, kernel, [1,1,1,1], padding='SAME')
 			conv2 = tf.nn.relu(conv + bias)
@@ -119,18 +124,18 @@ class NGA:
 		# local2.shape = [config.batch_size, 128*config.read_size/4]
 		with tf.variable_scope('deconv3') as scope:
 			reshape = tf.reshape(local2, (self.config.batch_size, 1, self.config.read_size/4, 128))
-			kernel = weight_variable('w', [1, 10, 128, 128])
+			kernel = kernel_variable('w', [1, 10, 128, 128])
 			bias = weight_variable('b', [128])
 			deconv = tf.nn.conv2d_transpose(reshape, kernel, (self.config.batch_size, 1, self.config.read_size/2, 128), [1, 1, 2, 1]) 
 			deconv3 = tf.nn.relu(deconv + bias)
 
 		# deconv4
-		# deconv3.shape = [config.batch_size, 128*config.read_size/2]
+		# deconv3.shape = [config.batch_size, 1, config.read_size/2, 128]
 		with tf.variable_scope('deconv4') as scope:
-			kernel = weight_variable('w', [1, 10, 4, 128])
+			kernel = kernel_variable('w', [1, 10, 4, 128])
 			bias = weight_variable('b', [4])
 			deconv = tf.nn.conv2d_transpose(deconv3, kernel, (self.config.batch_size, 1, self.config.read_size, 4), [1, 1, 2, 1]) 
-			deconv4 = tf.nn.sigmoid(deconv + bias)
+			deconv4 = tf.nn.softmax(deconv + bias, dim=-1)
 
 		return deconv4
 
@@ -168,12 +173,23 @@ class NGA:
 		print self.sess.run( self.reconstr_loss, feed_dict={self.x: X})
 		print self.sess.run( self.x_recon_theta, feed_dict={self.x: X})
 		'''
+		'''
+		print np.sum(self.sess.run( self.tmp0, feed_dict={self.x: X}))
+		print np.sum(self.sess.run( self.tmp_kernel, feed_dict={self.x: X}))
+		print np.max(self.sess.run( self.tmp_kernel, feed_dict={self.x: X}))
+		print np.min(self.sess.run( self.tmp_kernel, feed_dict={self.x: X}))
+		print (self.sess.run( self.tmp_kernel, feed_dict={self.x: X}))
+		print np.min(self.sess.run( self.x_recon_theta, feed_dict={self.x: X}))
+		print np.sum(self.sess.run( self.x_recon_theta, feed_dict={self.x: X}))
+		print np.sum(self.sess.run( self.reconstr_loss, feed_dict={self.x: X}))
+		print "-"
 		print np.sum(self.sess.run( self.tmp1, feed_dict={self.x: X}))
 		print np.sum(self.sess.run( self.tmp2, feed_dict={self.x: X}))
 		print 'tmp3 :: ' , np.sum(self.sess.run( self.tmp3, feed_dict={self.x: X}))
 		print 'zmean :: ' , np.sum(self.sess.run( self.z_mean, feed_dict={self.x: X}))
 		print 'zlogsigma :: ' , np.sum(self.sess.run( self.z_log_sigma_sq, feed_dict={self.x: X}))
 		print self.sess.run( self.cost, feed_dict={self.x: X})
+		'''
 
 		opt, cost = self.sess.run((self.optimizer, self.cost), 
 								  feed_dict={self.x: X})
