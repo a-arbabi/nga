@@ -18,6 +18,7 @@ def weight_variable(name, shape):
 
 class Config:
 	read_size = 100
+	projected_size = 200
 	z_dim = 100
 	#z_dim = 20
 	learning_rate = 0.0001
@@ -59,6 +60,7 @@ class NGA:
 
 		self.sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True))
 		self.sess.run(tf.initialize_all_variables())
+
 
 
 	def encoder(self):
@@ -110,39 +112,9 @@ class NGA:
 
 		return (z_mean, z_log_sigma_sq)
 
-	def decoder_slide(self):
-		# local1
-		# z.shape = [config.batch_size, config.z_dim]
-		with tf.variable_scope('local1') as scope:
-			local1 = tf.nn.relu(linear('w', self.z, (self.config.z_dim, 400)))
-
-		# local2
-		# local1.shape = [config.batch_size, 400]
-		with tf.variable_scope('local2') as scope:
-			local2 = tf.nn.relu(linear('w', local1, (400, 128 * self.config.read_size / 4)))
-
-		# deconv3
-		# local2.shape = [config.batch_size, 128*config.read_size/4]
-		with tf.variable_scope('deconv3') as scope:
-			reshape = tf.reshape(local2, (self.config.batch_size, 1, self.config.read_size/4, 128))
-			kernel = kernel_variable('w', [1, 10, 128, 128])
-			bias = weight_variable('b', [128])
-			deconv = tf.nn.conv2d_transpose(reshape, kernel, (self.config.batch_size, 1, self.config.read_size/2, 128), [1, 1, 2, 1]) 
-			deconv3 = tf.nn.relu(deconv + bias)
-
-		# deconv4
-		# deconv3.shape = [config.batch_size, 1, config.read_size/2, 128]
-		with tf.variable_scope('deconv4') as scope:
-			kernel = kernel_variable('w', [1, 10, 4, 128])
-			bias = weight_variable('b', [4])
-			deconv = tf.nn.conv2d_transpose(deconv3, kernel, (self.config.batch_size, 1, 3*self.config.read_size/2, 4), [1, 1, 2, 1]) 
-			deconv4 = tf.nn.softmax(deconv + bias, dim=-1)
-
-		return deconv4
-
-
 
 	def decoder(self):
+		#		return self.decoder_slide()
 		# local1
 		# z.shape = [config.batch_size, config.z_dim]
 		with tf.variable_scope('local1') as scope:
@@ -167,19 +139,26 @@ class NGA:
 		with tf.variable_scope('deconv4') as scope:
 			kernel = kernel_variable('w', [1, 10, 4, 128])
 			bias = weight_variable('b', [4])
-			deconv = tf.nn.conv2d_transpose(deconv3, kernel, (self.config.batch_size, 1, self.config.read_size, 4), [1, 1, 2, 1]) 
+#			deconv = tf.nn.conv2d_transpose(deconv3, kernel, (self.config.batch_size, 1, self.config.read_size, 4), [1, 1, 2, 1]) 
+			deconv = tf.nn.conv2d_transpose(deconv3, kernel, (self.config.batch_size, 1, self.config.projected_size, 4), [1, 1, 2*self.config.projected_size/self.config.read_size, 1]) 
 			deconv4 = tf.nn.softmax(deconv + bias, dim=-1)
 
 		return deconv4
 
 	def reconstr_loss_slide(self):
-		self.reconstr_loss = \
-				-tf.reduce_logsumexp(self.x * tf.log(1e-10 + self.x_recon_theta) ,[1,2,3])
-		reconstr_loss = self.reconstr_loss
+		reshaped = tf.reshape(self.x_recon_theta, [1, -1, self.config.projected_size, 4])
+		x_recon_logs = tf.log(1e-10 + reshaped)
+		x_reshape = tf.reshape(self.x, [-1, self.config.read_size, 4, 1])
+		conv = tf.nn.conv2d(x_recon_logs, x_reshape, [1, 1, 1, 1], 'VALID')
+
+		return  -tf.reduce_logsumexp(conv ,[1])
 
 	def create_loss(self):
+		'''
 		self.reconstr_loss = \
 				-tf.reduce_sum(self.x * tf.log(1e-10 + self.x_recon_theta) ,[1,2,3])
+		'''
+		self.reconstr_loss = self.reconstr_loss_slide()
 		reconstr_loss = self.reconstr_loss
 
 		self.latent_loss = -0.5 * tf.reduce_sum(1 + self.z_log_sigma_sq 
@@ -197,6 +176,7 @@ class NGA:
 		"""
 
 		X = np.expand_dims(X, 1)
+
 		opt, cost = self.sess.run((self.optimizer, self.cost), 
 								  feed_dict={self.x: X})
 		return cost
@@ -237,8 +217,8 @@ class NGA:
 
 def train(nga, gen):
 	# Training cycle
-	display_step = 100
-	for epoch in range(1):
+	display_step = 2
+	for epoch in range(50):
 		print "Epoch: " + str(epoch)
 		gen.reset_counter()
 		total_cost = 0.
@@ -262,10 +242,9 @@ def train(nga, gen):
 			# Compute average loss
 			total_cost += cost 
 			count += 1
-			break
 
 		# Display logs per epoch step
-		if  True or count % display_step == 0:
+		if  epoch % display_step == 0:
 			print "Step:", '%04d' % (count), \
 				"cost=", "{:.9f}".format(total_cost/count)
 	nga.save('checkpoints')
@@ -297,8 +276,8 @@ def main():
 	print 'hello'
 	gen = read_gen.ReadGen('dna_10k.fa', 100, Config.read_size)
 	nga = NGA(Config)
-	#train(nga, gen)
-	nga.load('checkpoints')
+	train(nga, gen)
+	#nga.load('checkpoints')
 	create_sample_for_plot(nga, gen)
 	return
 
