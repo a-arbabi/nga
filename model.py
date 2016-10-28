@@ -217,9 +217,8 @@ class NGA:
 
 def train(nga, gen):
 	# Training cycle
-	display_step = 2
+	display_step = 5
 	for epoch in range(50):
-		print "Epoch: " + str(epoch)
 		gen.reset_counter()
 		total_cost = 0.
 		count = 0
@@ -245,7 +244,7 @@ def train(nga, gen):
 
 		# Display logs per epoch step
 		if  epoch % display_step == 0:
-			print "Step:", '%04d' % (count), \
+			print "Epoch:", '%04d' % (count), \
 				"cost=", "{:.9f}".format(total_cost/count)
 	nga.save('checkpoints')
 
