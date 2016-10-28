@@ -4,6 +4,8 @@ from tensorflow.examples.tutorials.mnist import input_data
 #import matplotlib.pyplot as plt
 import read_gen
 import h5py
+import sys
+
 
 def linear(name, x, shape):
 	w = weight_variable(name + 'W', shape)
@@ -218,7 +220,7 @@ class NGA:
 def train(nga, gen):
 	# Training cycle
 	display_step = 5
-	for epoch in range(50):
+	for epoch in range(500):
 		gen.reset_counter()
 		total_cost = 0.
 		count = 0
@@ -246,6 +248,8 @@ def train(nga, gen):
 		if  epoch % display_step == 0:
 			print "Epoch:", '%04d' % (epoch), \
 				"cost=", "{:.9f}".format(total_cost/count)
+			sys.stdout.flush()
+
 	nga.save('checkpoints')
 
 def create_sample_for_plot(nga, gen):
