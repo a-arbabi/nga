@@ -244,7 +244,7 @@ def train(nga, gen):
 
 		# Display logs per epoch step
 		if  epoch % display_step == 0:
-			print "Epoch:", '%04d' % (count), \
+			print "Epoch:", '%04d' % (epoch), \
 				"cost=", "{:.9f}".format(total_cost/count)
 	nga.save('checkpoints')
 
