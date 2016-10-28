@@ -23,7 +23,7 @@ class Config:
 	projected_size = 200
 	z_dim = 100
 	#z_dim = 20
-	learning_rate = 0.0001
+	learning_rate = 0.001
 	batch_size =256
 
 def conv2d(x, name, shape):
@@ -247,7 +247,8 @@ def train(nga, gen):
 		# Display logs per epoch step
 		if  epoch % display_step == 0:
 			print "Epoch:", '%04d' % (epoch), \
-				"cost=", "{:.9f}".format(total_cost/count)
+				"cost=", total_cost/count
+				#"cost=", "{:.9f}".format(total_cost/count)
 			sys.stdout.flush()
 
 	nga.save('checkpoints')

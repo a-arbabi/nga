@@ -11,10 +11,12 @@ def plot():
 
 	vis_data = bh_sne(np.float64(z))
 
-	vis_x = vis_data[:, 0]
-	vis_y = vis_data[:, 1]
+	vis_x = vis_data[:10, 0]
+	vis_y = vis_data[:10, 1]
+	y = y[:10]
 
 	plt.scatter(vis_x, vis_y, c=y) #, cmap=plt.cm.get_cmap("jet", 10))
+	plt.plot(vis_x, vis_y, lw=0.1) #, c=y)
 	plt.colorbar() #ticks=range(10))
 	plt.clim(0.0, 1.0)
 	plt.show()
