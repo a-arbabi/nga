@@ -25,6 +25,7 @@ class Config:
 	#z_dim = 20
 	learning_rate = 0.001
 	batch_size =256
+	phi = 0.1
 
 def conv2d(x, name, shape):
 	W = tf.get_variable(name, shape, initializer = tf.contrib.layers.xavier_initializer_conv2d)
@@ -56,7 +57,8 @@ class NGA:
 		self.z = tf.add(self.z_mean, 
 				tf.mul(tf.sqrt(tf.exp(self.z_log_sigma_sq)), self.eps))
 
-		self.x_recon_theta = self.decoder()
+		self.x_recon_theta, self.phi = self.decoder()
+		self.phi = tf.constant(config.phi)
 
 		self.create_loss()
 
@@ -145,15 +147,39 @@ class NGA:
 			deconv = tf.nn.conv2d_transpose(deconv3, kernel, (self.config.batch_size, 1, self.config.projected_size, 4), [1, 1, 2*self.config.projected_size/self.config.read_size, 1]) 
 			deconv4 = tf.nn.softmax(deconv + bias, dim=-1)
 
-		return deconv4
+		phi = tf.nn.sigmoid(linear('phi', self.z, [self.config.z_dim, 1]))
+
+		return deconv4, phi
 
 	def reconstr_loss_slide(self):
+		'''
 		reshaped = tf.reshape(self.x_recon_theta, [1, -1, self.config.projected_size, 4])
-		x_recon_logs = tf.log(1e-10 + reshaped)
-		x_reshape = tf.reshape(self.x, [-1, self.config.read_size, 4, 1])
-		conv = tf.nn.conv2d(x_recon_logs, x_reshape, [1, 1, 1, 1], 'VALID')
+		self.x_recon_logs = tf.log(1e-10 + reshaped)
+		self.x_reshape = tf.reshape(self.x, [-1, self.config.read_size, 4, 1])
+		'''
+		# reshaped -> [1, self.config.projected_size, 4, batch_size]
+		self.x_recon_theta_tran = tf.transpose(tf.log(1e-10 + self.x_recon_theta), [1,2,3,0])
+		# x_reshape -> [self.config.read_size, 4, batch_size, 1]
+		self.x_tran = tf.transpose(self.x, [2,3,0,1])
+		#self.reconstr_conv = tf.nn.conv2d(self.x_recon_logs, self.x_reshape, [1, 1, 1, 1], 'VALID')
+		reconstr_conv = tf.nn.depthwise_conv2d(self.x_recon_theta_tran, self.x_tran, [1, 1, 1, 1], 'VALID')
+		reconstr_conv = tf.squeeze(tf.transpose(reconstr_conv, [3,1,0,2]))
+	
+		np_range = 1.0*np.array(range(0, self.config.projected_size - self.config.read_size + 1))\
+				- (self.config.projected_size - self.config.read_size)/21.0*np.array(range(0, self.config.projected_size - self.config.read_size + 1))\
+				- (self.config.projected_size - self.config.read_size)/2
 
-		return  -tf.reduce_logsumexp(conv ,[1])
+		
+		p_range = tf.constant(np_range, tf.float32)
+		#p_range = tf.constant(1.0*np.array(range(0, self.config.projected_size - self.config.read_size + 1))\
+				#		- (self.config.projected_size - self.config.read_size)/2) 
+
+		reconstr_prior = tf.log(1e-10 + 1.0-self.phi) * p_range + tf.log(1e-10 + self.phi) - tf.log(2.0)
+		reconstr_prior += tf.constant(np.array([0.0 if i!=(self.config.projected_size - self.config.read_size)/2 else np.log(2.0)\
+				for i in range(0,(self.config.projected_size - self.config.read_size+1))]), tf.float32) 
+		
+
+		return  -tf.reduce_logsumexp(reconstr_prior + reconstr_conv ,[1])
 
 	def create_loss(self):
 		'''
@@ -179,6 +205,11 @@ class NGA:
 
 		X = np.expand_dims(X, 1)
 
+		'''
+		print X.shape
+		print self.sess.run(self.x_recon_theta_tran, feed_dict={self.x: X}).shape
+		print self.sess.run(self.x_tran, feed_dict={self.x: X}).shape
+		'''
 		opt, cost = self.sess.run((self.optimizer, self.cost), 
 								  feed_dict={self.x: X})
 		return cost
