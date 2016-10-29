@@ -142,7 +142,7 @@ class NGA:
 		# deconv3.shape = [config.batch_size, 1, config.read_size/2, 128]
 		with tf.variable_scope('deconv4') as scope:
 			kernel = kernel_variable('w', [1, 10, 64, 128])
-			bias = weight_variable('b', [4])
+			bias = weight_variable('b', [64])
 			deconv = tf.nn.conv2d_transpose(deconv3, kernel, (self.config.batch_size, 1, self.config.read_size, 64), [1, 1, 2, 1]) 
 			deconv4 = tf.nn.relu(deconv + bias)
 
