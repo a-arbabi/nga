@@ -21,33 +21,16 @@ def weight_variable(name, shape):
 class Config:
 	read_size = 100
 	projected_size = 200
-	z_dim = 20
+	z_dim = 2
 	#z_dim = 20
-	learning_rate = 0.001
+	learning_rate = 0.0002
 	batch_size = 512
-	phi = 0.5
-
-def conv2d(x, name, shape):
-	W = tf.get_variable(name, shape, initializer = tf.contrib.layers.xavier_initializer_conv2d)
-	B = tf.zeros((shape[-1]))
-	return tf.nn.relu(tf.nn.conv2d(x, W, [1, 1, 1, 1], padding='SAME')+B)
-
-def max_pool(x):
-	return tf.nn.max_pool(x, [1, 1, 2, 1], strides=[1, 1, 2, 1], padding='SAME')
-
-def conv2d_transpose(x, name, filter_shape, output_shape):
-	W = tf.get_variable(name, filter_shape, initializer = tf.contrib.layers.xavier_initializer_conv2d)
-	B = tf.zeros((shape[-1]))
-	return tf.nn.relu(tf.nn.conv2d_transpose(x, W, [1, 1, 1, 1], padding='SAME')+B)
-
-
+	phi = 0.1
 
 class NGA:
 	def __init__(self, config):
 		self.config = config
 		self.x = tf.placeholder(tf.float32, shape = [None, 1, config.read_size, 4])
-#		self.eps = tf.placeholder(tf.float32, shape = [None, config.z_dim])
-
 
 		self.eps = tf.random_normal((config.batch_size, config.z_dim), 0, 1, 
 				dtype=tf.float32)
@@ -66,19 +49,15 @@ class NGA:
 		self.sess.run(tf.initialize_all_variables())
 
 
-
 	def encoder(self):
 		# conv1
 		# x.shape = [config.batch_size, 1, config.read_size, 4]
-		self.tmp0 = self.x
 		with tf.variable_scope('conv1'):
 			# k=10, hid=128
 			kernel = kernel_variable('w', [1, 10, 4, 128])
-			self.tmp_kernel = kernel
 			bias = weight_variable('b', [128])
 			conv = tf.nn.conv2d(self.x, kernel, [1,1,1,1], padding='SAME')
 			conv1 = tf.nn.relu(conv + bias)
-		self.tmp1 = conv1
 
 		# pool1
 		# conv1.shape = [config.batch_size, 1, config.read_size, 128]
@@ -93,7 +72,6 @@ class NGA:
 			bias = weight_variable('b', [128])
 			conv = tf.nn.conv2d(conv1, kernel, [1,1,1,1], padding='SAME')
 			conv2 = tf.nn.relu(conv + bias)
-		self.tmp2 = conv2
 
 		# pool2
 		# conv2.shape = [config.batch_size, 1, config.read_size/2, 128]
@@ -104,9 +82,7 @@ class NGA:
 		with tf.variable_scope('local3') as scope:
 			dim = self.config.read_size * 128 / 2
 			reshape = tf.reshape(pool2, [-1, dim])
-			#dim = reshape.get_shape()[1].value
 			local3 = tf.nn.relu(linear('w', reshape, [dim, 400]))
-		self.tmp3 = local3
 
 		# local3
 		# local3.shape = [config.batch_size, 400]
@@ -118,7 +94,6 @@ class NGA:
 
 
 	def decoder(self):
-		#		return self.decoder_slide()
 		# local1
 		# z.shape = [config.batch_size, config.z_dim]
 		with tf.variable_scope('local1') as scope:
@@ -152,8 +127,6 @@ class NGA:
 			deconv = tf.nn.conv2d_transpose(deconv4, kernel, (self.config.batch_size, 1, self.config.projected_size, 4), [1, 1, self.config.projected_size/self.config.read_size, 1]) 
 			deconv5 = tf.nn.softmax(deconv + bias, dim=-1)
 
-
-
 		#phi = tf.nn.sigmoid(linear('phi', self.z, [self.config.z_dim, 1]))
 
 		return deconv5 #, phi
@@ -167,10 +140,9 @@ class NGA:
 		reconstr_conv = tf.nn.depthwise_conv2d(self.x_recon_theta_tran, self.x_tran, [1, 1, 1, 1], 'VALID')
 		reconstr_conv = tf.squeeze(tf.transpose(reconstr_conv, [3,1,0,2]))
 	
-		p_range = 1.0*np.array(range(0, self.config.projected_size - self.config.read_size + 1))\
-				- (self.config.projected_size - self.config.read_size)/2 
-
-		p_range = tf.constant(np_range, tf.float32)
+		p_range = np.abs(1.0*np.array(range(0, self.config.projected_size - self.config.read_size + 1))\
+				- (self.config.projected_size - self.config.read_size)/2)
+		p_range = tf.constant(p_range, tf.float32)
 
 		reconstr_prior = tf.log(1e-10 + 1.0-self.phi) * p_range + tf.log(1e-10 + self.phi) - tf.log(2.0)
 		reconstr_prior += tf.constant(np.array([0.0 if i!=(self.config.projected_size - self.config.read_size)/2 else np.log(2.0)\
@@ -258,25 +230,17 @@ def train(nga, gen):
 			if batch_xs is None:
 				break
 
-			'''
-			plt.plot()
-			plt.imshow(batch_xs[0].reshape(28, 28), vmin=0, vmax=1)
-			plt.title("Test input")
-			plt.show()
-			'''
-
 			# Fit training using batch data
 			cost = nga.partial_fit(batch_xs)
-			# Compute average loss
+
 			total_cost += cost 
 			count += 1
 
 		# Display logs per epoch step
-			if True or  epoch % display_step == 0:
-				print "Epoch:", '%04d' % (epoch), \
-					"cost=", total_cost/count
-					#"cost=", "{:.9f}".format(total_cost/count)
-				sys.stdout.flush()
+		if  epoch % display_step == 0:
+			print "Epoch:", '%04d' % (epoch), \
+				"cost=", total_cost/count
+			sys.stdout.flush()
 
 	nga.save('checkpoints')
 
@@ -284,24 +248,13 @@ def create_sample_for_plot(nga, gen):
 	gen.reset_counter()
 	x_sample, y_sample = gen.read_batch(1000)
 	y_sample = np.float64(y_sample) / len(gen.seq)
+
 	z_mu = nga.transform(x_sample)
 
 	h5f = h5py.File('plot_data.h5', 'w')
 	h5f.create_dataset('z', data=z_mu)
 	h5f.create_dataset('y', data=y_sample)
 	h5f.close()
-	return
-
-
-	vis_data = bh_sne(np.float64(z_mu))
-
-	vis_x = vis_data[:, 0]
-	vis_y = vis_data[:, 1]
-
-	plt.scatter(vis_x, vis_y, c=y_sample) #, cmap=plt.cm.get_cmap("jet", 10))
-	plt.colorbar() #ticks=range(10))
-	plt.clim(0.0, 1.0)
-	plt.show()
 
 def main():
 	print 'hello'
@@ -310,21 +263,6 @@ def main():
 	train(nga, gen)
 	#nga.load('checkpoints')
 	create_sample_for_plot(nga, gen)
-	return
-
-
-
-
-
-	'''
-	x_sample = mnist.test.next_batch(100)[0]
-	for i in range(5):
-		plt.plot()
-		plt.imshow(x_sample[i].reshape(28, 28), vmin=0, vmax=1)
-		plt.title("Test input")
-		plt.show()
-	'''
-
 
 
 if __name__ == '__main__':
