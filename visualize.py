@@ -50,9 +50,10 @@ def main():
 
 
 	vis_data = bh_sne(np.float64(z))
-	#vis_data = z #bh_sne(np.float64(z))
+	vis_data = z #bh_sne(np.float64(z))
 
 #	animate_plot(vis_data)
+#	plot(z, y)
 	plot(vis_data, y)
 
 if __name__ == '__main__':

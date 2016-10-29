@@ -21,11 +21,12 @@ def weight_variable(name, shape):
 class Config:
 	read_size = 100
 	projected_size = 200
-	z_dim = 2
+	z_dim = 10
 	#z_dim = 20
 	learning_rate = 0.0002
+	lr_decay = 0.9
 	batch_size = 512
-	phi = 0.1
+	phi = 0.2
 
 class NGA:
 	def __init__(self, config):
@@ -162,6 +163,7 @@ class NGA:
 				- tf.square(self.z_mean) 
 				- tf.exp(self.z_log_sigma_sq), 1)
 		self.cost = tf.reduce_mean(self.reconstr_loss + self.latent_loss)
+#		self.lr = tf.Variable(self.config.learning_rate, False)
 		self.optimizer = \
 				tf.train.AdamOptimizer(learning_rate=self.config.learning_rate).minimize(self.cost)
 	
@@ -219,12 +221,16 @@ class NGA:
 def train(nga, gen):
 	# Training cycle
 	display_step = 5
-	for epoch in range(500):
+	for epoch in range(1500):
 		gen.reset_counter()
 		total_cost = 0.
 		count = 0
 		batch_size = nga.config.batch_size
 		# Loop over all batches
+
+#		lr_new = nga.config.learning_rate * (nga.config.lr_decay ** int(epoch/100))
+#		nga.sess.run(tf.assign(nga.lr, lr_new))
+
 		while True:
 			batch_xs, _ = gen.read_batch(batch_size) #mnist.train.next_batch(batch_size)
 			if batch_xs is None:
@@ -237,6 +243,7 @@ def train(nga, gen):
 			count += 1
 
 		# Display logs per epoch step
+
 		if  epoch % display_step == 0:
 			print "Epoch:", '%04d' % (epoch), \
 				"cost=", total_cost/count
