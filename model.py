@@ -21,11 +21,11 @@ def weight_variable(name, shape):
 class Config:
 	read_size = 100
 	projected_size = 200
-	z_dim = 100
+	z_dim = 20
 	#z_dim = 20
 	learning_rate = 0.001
-	batch_size =256
-	phi = 0.1
+	batch_size = 512
+	phi = 0.5
 
 def conv2d(x, name, shape):
 	W = tf.get_variable(name, shape, initializer = tf.contrib.layers.xavier_initializer_conv2d)
@@ -57,7 +57,7 @@ class NGA:
 		self.z = tf.add(self.z_mean, 
 				tf.mul(tf.sqrt(tf.exp(self.z_log_sigma_sq)), self.eps))
 
-		self.x_recon_theta, self.phi = self.decoder()
+		self.x_recon_theta = self.decoder()
 		self.phi = tf.constant(config.phi)
 
 		self.create_loss()
@@ -141,38 +141,36 @@ class NGA:
 		# deconv4
 		# deconv3.shape = [config.batch_size, 1, config.read_size/2, 128]
 		with tf.variable_scope('deconv4') as scope:
-			kernel = kernel_variable('w', [1, 10, 4, 128])
+			kernel = kernel_variable('w', [1, 10, 64, 128])
 			bias = weight_variable('b', [4])
-#			deconv = tf.nn.conv2d_transpose(deconv3, kernel, (self.config.batch_size, 1, self.config.read_size, 4), [1, 1, 2, 1]) 
-			deconv = tf.nn.conv2d_transpose(deconv3, kernel, (self.config.batch_size, 1, self.config.projected_size, 4), [1, 1, 2*self.config.projected_size/self.config.read_size, 1]) 
-			deconv4 = tf.nn.softmax(deconv + bias, dim=-1)
+			deconv = tf.nn.conv2d_transpose(deconv3, kernel, (self.config.batch_size, 1, self.config.read_size, 64), [1, 1, 2, 1]) 
+			deconv4 = tf.nn.relu(deconv + bias)
 
-		phi = tf.nn.sigmoid(linear('phi', self.z, [self.config.z_dim, 1]))
+		with tf.variable_scope('deconv5') as scope:
+			kernel = kernel_variable('w', [1, 10, 4, 64])
+			bias = weight_variable('b', [4])
+			deconv = tf.nn.conv2d_transpose(deconv4, kernel, (self.config.batch_size, 1, self.config.projected_size, 4), [1, 1, self.config.projected_size/self.config.read_size, 1]) 
+			deconv5 = tf.nn.softmax(deconv + bias, dim=-1)
 
-		return deconv4, phi
+
+
+		#phi = tf.nn.sigmoid(linear('phi', self.z, [self.config.z_dim, 1]))
+
+		return deconv5 #, phi
 
 	def reconstr_loss_slide(self):
-		'''
-		reshaped = tf.reshape(self.x_recon_theta, [1, -1, self.config.projected_size, 4])
-		self.x_recon_logs = tf.log(1e-10 + reshaped)
-		self.x_reshape = tf.reshape(self.x, [-1, self.config.read_size, 4, 1])
-		'''
 		# reshaped -> [1, self.config.projected_size, 4, batch_size]
 		self.x_recon_theta_tran = tf.transpose(tf.log(1e-10 + self.x_recon_theta), [1,2,3,0])
 		# x_reshape -> [self.config.read_size, 4, batch_size, 1]
 		self.x_tran = tf.transpose(self.x, [2,3,0,1])
-		#self.reconstr_conv = tf.nn.conv2d(self.x_recon_logs, self.x_reshape, [1, 1, 1, 1], 'VALID')
+
 		reconstr_conv = tf.nn.depthwise_conv2d(self.x_recon_theta_tran, self.x_tran, [1, 1, 1, 1], 'VALID')
 		reconstr_conv = tf.squeeze(tf.transpose(reconstr_conv, [3,1,0,2]))
 	
-		np_range = 1.0*np.array(range(0, self.config.projected_size - self.config.read_size + 1))\
-				- (self.config.projected_size - self.config.read_size)/21.0*np.array(range(0, self.config.projected_size - self.config.read_size + 1))\
-				- (self.config.projected_size - self.config.read_size)/2
+		p_range = 1.0*np.array(range(0, self.config.projected_size - self.config.read_size + 1))\
+				- (self.config.projected_size - self.config.read_size)/2 
 
-		
 		p_range = tf.constant(np_range, tf.float32)
-		#p_range = tf.constant(1.0*np.array(range(0, self.config.projected_size - self.config.read_size + 1))\
-				#		- (self.config.projected_size - self.config.read_size)/2) 
 
 		reconstr_prior = tf.log(1e-10 + 1.0-self.phi) * p_range + tf.log(1e-10 + self.phi) - tf.log(2.0)
 		reconstr_prior += tf.constant(np.array([0.0 if i!=(self.config.projected_size - self.config.read_size)/2 else np.log(2.0)\
@@ -187,13 +185,11 @@ class NGA:
 				-tf.reduce_sum(self.x * tf.log(1e-10 + self.x_recon_theta) ,[1,2,3])
 		'''
 		self.reconstr_loss = self.reconstr_loss_slide()
-		reconstr_loss = self.reconstr_loss
 
 		self.latent_loss = -0.5 * tf.reduce_sum(1 + self.z_log_sigma_sq 
 				- tf.square(self.z_mean) 
 				- tf.exp(self.z_log_sigma_sq), 1)
-		latent_loss = self.latent_loss
-		self.cost = tf.reduce_mean(reconstr_loss + latent_loss)
+		self.cost = tf.reduce_mean(self.reconstr_loss + self.latent_loss)
 		self.optimizer = \
 				tf.train.AdamOptimizer(learning_rate=self.config.learning_rate).minimize(self.cost)
 	
@@ -276,11 +272,11 @@ def train(nga, gen):
 			count += 1
 
 		# Display logs per epoch step
-		if  epoch % display_step == 0:
-			print "Epoch:", '%04d' % (epoch), \
-				"cost=", total_cost/count
-				#"cost=", "{:.9f}".format(total_cost/count)
-			sys.stdout.flush()
+			if True or  epoch % display_step == 0:
+				print "Epoch:", '%04d' % (epoch), \
+					"cost=", total_cost/count
+					#"cost=", "{:.9f}".format(total_cost/count)
+				sys.stdout.flush()
 
 	nga.save('checkpoints')
 
