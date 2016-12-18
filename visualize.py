@@ -1,4 +1,3 @@
-from tsne import bh_sne
 import matplotlib.pyplot as plt
 import h5py
 from matplotlib.animation import FuncAnimation
@@ -40,17 +39,20 @@ def animate_plot(vis_data):
 	plt.show()
 
 def main():
-	h5f = h5py.File('plot_data.h5', 'r')
+	h5f = h5py.File('plot_data_rnn.h5', 'r')
 	z = np.array(h5f['z'])
-	y = np.array(h5f['y'])
+	z = np.squeeze(z)
+	#y = np.array(h5f['y'])
+	y = 1.0*np.array(range(z.shape[0]))/z.shape[0]
 	h5f.close()
 
-	z = z[np.argsort(y),:]
-	y = y[np.argsort(y)]
+#	z = z[np.argsort(y),:]
+#	y = y[np.argsort(y)]
 
 
+	from tsne import bh_sne
 	vis_data = bh_sne(np.float64(z))
-	vis_data = z #bh_sne(np.float64(z))
+#	vis_data = z #bh_sne(np.float64(z))
 
 #	animate_plot(vis_data)
 #	plot(z, y)
