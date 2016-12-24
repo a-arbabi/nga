@@ -8,25 +8,26 @@ import sys
 
 
 def linear(name, x, shape):
-	w = weight_variable(name + 'W', shape)
-	b = weight_variable(name + 'B',(shape[1]))
+	w = tf.get_variable(name+'W', shape, initializer=tf.contrib.layers.xavier_initializer())
+	b = tf.get_variable(name+'B', shape[1], initializer=tf.truncated_normal_initializer(stddev = 0.01))
 	return tf.matmul(x,w) + b
 
 def kernel_variable(name, shape):
 	return tf.get_variable(name, shape, initializer=tf.contrib.layers.xavier_initializer_conv2d())
 
 def weight_variable(name, shape):
-	return tf.get_variable(name, shape, initializer=tf.truncated_normal_initializer(stddev = 0.02))
+	#	return tf.get_variable(name, shape, initializer=tf.contrib.layers.xavier_initializer())
+	return tf.get_variable(name, shape, initializer=tf.truncated_normal_initializer(stddev = 0.01))
 
 class Config:
 	read_size = 100
 	projected_size = 200
-	z_dim = 10
+	z_dim = 2
 	#z_dim = 20
-	learning_rate = 0.0001
+	learning_rate = 0.0005
 	lr_decay = 0.9
 	batch_size = 512
-	phi = 0.5
+	phi = 0.2
 
 class NGA:
 	def __init__(self, config):
@@ -55,7 +56,7 @@ class NGA:
 		# x.shape = [config.batch_size, 1, config.read_size, 4]
 		with tf.variable_scope('conv1'):
 			# k=10, hid=128
-			kernel = kernel_variable('w', [1, 50, 4, 128])
+			kernel = kernel_variable('w', [1, 20, 4, 128])
 			bias = weight_variable('b', [128])
 			conv = tf.nn.conv2d(self.x, kernel, [1,1,1,1], padding='SAME')
 			conv1 = tf.nn.relu(conv + bias)
@@ -123,7 +124,7 @@ class NGA:
 			deconv4 = tf.nn.relu(deconv + bias)
 
 		with tf.variable_scope('deconv5') as scope:
-			kernel = kernel_variable('w', [1, 50, 4, 64])
+			kernel = kernel_variable('w', [1, 10, 4, 64])
 			bias = weight_variable('b', [4])
 			deconv = tf.nn.conv2d_transpose(deconv4, kernel, (self.config.batch_size, 1, self.config.projected_size, 4), [1, 1, self.config.projected_size/self.config.read_size, 1]) 
 			deconv5 = tf.nn.softmax(deconv + bias, dim=-1)
@@ -221,7 +222,7 @@ class NGA:
 def train(nga, gen):
 	# Training cycle
 	display_step = 5
-	for epoch in range(500):
+	for epoch in range(1000):
 		gen.reset_counter()
 		total_cost = 0.
 		count = 0

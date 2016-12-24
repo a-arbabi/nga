@@ -3,8 +3,9 @@ import numpy as np
 from tensorflow.examples.tutorials.mnist import input_data
 #import matplotlib.pyplot as plt
 import read_gen
-import h5py
+#import h5py
 import sys
+#import gpu_access
 
 
 def linear(name, x, shape):
@@ -19,11 +20,13 @@ def weight_variable(name, shape):
 	return tf.get_variable(name, shape, initializer=tf.truncated_normal_initializer(stddev = 0.02))
 
 class Config:
+	hidden_size = 200
+	fc_size = 100
 	read_size = 100
 	projected_size = 200
-	z_dim = 10
+	z_dim = 100
 	#z_dim = 20
-	learning_rate = 0.0002
+	learning_rate = 0.001
 	lr_decay = 0.9
 	batch_size = 512
 	phi = 0.5
@@ -31,7 +34,7 @@ class Config:
 class NGA:
 	def __init__(self, config):
 		self.config = config
-		self.x = tf.placeholder(tf.float32, shape = [None, 1, config.read_size, 4])
+		self.x = tf.placeholder(tf.float32, shape = [None, config.read_size, 4])
 
 		self.eps = tf.random_normal((config.batch_size, config.z_dim), 0, 1, 
 				dtype=tf.float32)
@@ -53,84 +56,67 @@ class NGA:
 	def encoder(self):
 		# conv1
 		# x.shape = [config.batch_size, 1, config.read_size, 4]
-		with tf.variable_scope('conv1'):
-			# k=10, hid=128
-			kernel = kernel_variable('w', [1, 50, 4, 128])
-			bias = weight_variable('b', [128])
-			conv = tf.nn.conv2d(self.x, kernel, [1,1,1,1], padding='SAME')
-			conv1 = tf.nn.relu(conv + bias)
+		inputs = tf.unpack(self.x, axis = 1)
+		inputs.reverse()
 
-		# pool1
-		# conv1.shape = [config.batch_size, 1, config.read_size, 128]
-		with tf.variable_scope('pool1'):
-			pool1 = tf.nn.max_pool(conv1, ksize=[1, 1, 5, 1], strides=[1, 1, 2, 1], padding='SAME')
+		with tf.variable_scope("enc_rnn") as scope:
+			single_cell = tf.nn.rnn_cell.GRUCell(self.config.hidden_size)
+			self.cell = single_cell #tf.nn.rnn_cell.MultiRNNCell([single_cell]*config.num_layers, state_is_tuple=False)
 
-		# conv2
-		# pool1.shape = [config.batch_size, 1, config.read_size/2, 128]
-		with tf.variable_scope('conv2'):
-			# k=10, hid=128
-			kernel = kernel_variable('w', [1, 10, 128, 128])
-			bias = weight_variable('b', [128])
-			conv = tf.nn.conv2d(conv1, kernel, [1,1,1,1], padding='SAME')
-			conv2 = tf.nn.relu(conv + bias)
+			outputs, state = tf.nn.rnn(self.cell, inputs, dtype=tf.float32, \
+					scope=scope) #, initial_state=self._initial_state)
 
-		# pool2
-		# conv2.shape = [config.batch_size, 1, config.read_size/2, 128]
-		with tf.variable_scope('pool'):
-			pool2 = tf.nn.max_pool(conv2, ksize=[1, 1, 5, 1], strides=[1, 1, 2, 1], padding='SAME')
 
-		# pool2.shape = [config.batch_size, 1, config.read_size/2, 128]
-		with tf.variable_scope('local3') as scope:
-			dim = self.config.read_size * 128 / 2
-			reshape = tf.reshape(pool2, [-1, dim])
-			local3 = tf.nn.relu(linear('w', reshape, [dim, 400]))
 
-		# local3
-		# local3.shape = [config.batch_size, 400]
-		with tf.variable_scope('z_theta') as scope:
-			z_mean = linear('mean', local3, (400, self.config.z_dim))
-			z_log_sigma_sq = linear('sigma', local3, (400, self.config.z_dim))
+		with tf.variable_scope('enc_fc') as scope:
+			fc_layer1 = tf.nn.tanh(linear('w1', state, [self.config.hidden_size, self.config.hidden_size]))
+			fc_layer2 = tf.nn.tanh(linear('w2', state, [self.config.hidden_size, self.config.fc_size]))
+			z_mean = linear('mean', fc_layer2, (self.config.fc_size, self.config.z_dim))
+			z_log_sigma_sq = linear('sigma', fc_layer2, (self.config.fc_size, self.config.z_dim))
 
 		return (z_mean, z_log_sigma_sq)
 
 
+	def hidden2logit(self, h, reuse=False):
+		with tf.variable_scope("dec_rnn") as scope:
+			if reuse:
+				scope.reuse_variables()
+			layer1 = tf.nn.tanh(linear('layer1', h, [self.config.hidden_size, 200]))
+			#layer2 = tf.nn.tanh(linear('layer2', layer1, [200, 200]))
+			layer3 = linear('layer3', layer1, [200, 4])
+		return layer3
+
+
 	def decoder(self):
-		# local1
-		# z.shape = [config.batch_size, config.z_dim]
-		with tf.variable_scope('local1') as scope:
-			local1 = tf.nn.relu(linear('w', self.z, (self.config.z_dim, 400)))
+		with tf.variable_scope('dec_fc') as scope:
+			init_state_fc1 = tf.nn.tanh(linear('w1', self.z, [self.config.z_dim, self.config.fc_size]))
+			init_state_fc2 = tf.nn.tanh(linear('w2', self.z, [self.config.z_dim, self.config.hidden_size]))
+			init_state = tf.nn.tanh(linear('w3', init_state_fc2, [self.config.hidden_size, self.config.hidden_size]))
 
-		# local2
-		# local1.shape = [config.batch_size, 400]
-		with tf.variable_scope('local2') as scope:
-			local2 = tf.nn.relu(linear('w', local1, (400, 128 * self.config.read_size / 4)))
+		with tf.variable_scope("dec_rnn") as scope:
+			single_cell = tf.nn.rnn_cell.GRUCell(self.config.hidden_size)
+			self.cell_dec = single_cell #tf.nn.rnn_cell.MultiRNNCell([single_cell]*config.num_layers, state_is_tuple=False)
 
-		# deconv3
-		# local2.shape = [config.batch_size, 128*config.read_size/4]
-		with tf.variable_scope('deconv3') as scope:
-			reshape = tf.reshape(local2, (self.config.batch_size, 1, self.config.read_size/4, 128))
-			kernel = kernel_variable('w', [1, 10, 128, 128])
-			bias = weight_variable('b', [128])
-			deconv = tf.nn.conv2d_transpose(reshape, kernel, (self.config.batch_size, 1, self.config.read_size/2, 128), [1, 1, 2, 1]) 
-			deconv3 = tf.nn.relu(deconv + bias)
+		state = init_state
 
-		# deconv4
-		# deconv3.shape = [config.batch_size, 1, config.read_size/2, 128]
-		with tf.variable_scope('deconv4') as scope:
-			kernel = kernel_variable('w', [1, 10, 64, 128])
-			bias = weight_variable('b', [64])
-			deconv = tf.nn.conv2d_transpose(deconv3, kernel, (self.config.batch_size, 1, self.config.read_size, 64), [1, 1, 2, 1]) 
-			deconv4 = tf.nn.relu(deconv + bias)
+		predictions = []
+		for i in range(self.config.read_size):
+			reuse = (i > 0)
+			logits = self.hidden2logit(state, reuse)
+			last_pred = tf.nn.softmax(logits)
+			predictions.append(last_pred)
+			with tf.variable_scope("dec_rnn") as scope:
+				if i>0:
+					scope.reuse_variables()
+				(output, state) = self.cell_dec(last_pred, state, scope)
+	
 
-		with tf.variable_scope('deconv5') as scope:
-			kernel = kernel_variable('w', [1, 50, 4, 64])
-			bias = weight_variable('b', [4])
-			deconv = tf.nn.conv2d_transpose(deconv4, kernel, (self.config.batch_size, 1, self.config.projected_size, 4), [1, 1, self.config.projected_size/self.config.read_size, 1]) 
-			deconv5 = tf.nn.softmax(deconv + bias, dim=-1)
+		packed_predictions = tf.pack(predictions, axis=1)
+		return packed_predictions
 
-		#phi = tf.nn.sigmoid(linear('phi', self.z, [self.config.z_dim, 1]))
-
-		return deconv5 #, phi
+	def reconstr_loss(self):
+		self.x_recon_theta_log = tf.log(1e-10 + self.x_recon_theta)
+		return -tf.reduce_sum(self.x_recon_theta_log*self.x, [1,2])
 
 	def reconstr_loss_slide(self):
 		# reshaped -> [1, self.config.projected_size, 4, batch_size]
@@ -157,12 +143,13 @@ class NGA:
 		self.reconstr_loss = \
 				-tf.reduce_sum(self.x * tf.log(1e-10 + self.x_recon_theta) ,[1,2,3])
 		'''
-		self.reconstr_loss = self.reconstr_loss_slide()
+		self.recon_loss = self.reconstr_loss()
+		#self.reconstr_loss = self.reconstr_loss_slide()
 
 		self.latent_loss = -0.5 * tf.reduce_sum(1 + self.z_log_sigma_sq 
 				- tf.square(self.z_mean) 
 				- tf.exp(self.z_log_sigma_sq), 1)
-		self.cost = tf.reduce_mean(self.reconstr_loss + self.latent_loss)
+		self.cost = tf.reduce_mean(self.recon_loss + self.latent_loss)
 #		self.lr = tf.Variable(self.config.learning_rate, False)
 		self.optimizer = \
 				tf.train.AdamOptimizer(learning_rate=self.config.learning_rate).minimize(self.cost)
@@ -173,12 +160,11 @@ class NGA:
 		Return cost of mini-batch.
 		"""
 
-		X = np.expand_dims(X, 1)
-
+		#X = np.expand_dims(X, 1)
 		'''
-		print X.shape
-		print self.sess.run(self.x_recon_theta_tran, feed_dict={self.x: X}).shape
-		print self.sess.run(self.x_tran, feed_dict={self.x: X}).shape
+		print np.sum(self.sess.run(self.z, feed_dict={self.x: X}))
+		print np.min(self.sess.run(self.x_recon_theta, feed_dict={self.x: X}))
+		print np.sum(self.sess.run(self.x_recon_theta_log, feed_dict={self.x: X}))
 		'''
 		opt, cost = self.sess.run((self.optimizer, self.cost), 
 								  feed_dict={self.x: X})
@@ -265,9 +251,13 @@ def create_sample_for_plot(nga, gen):
 
 def main():
 	print 'hello'
-	gen = read_gen.ReadGen('dna_10k.fa', 100, Config.read_size)
+	gen = read_gen.ReadGen('dna_10k.fa', 20, Config.read_size)
+
+	#board = gpu_access.get_gpu()
 	nga = NGA(Config)
+	#with tf.device('/gpu:'+board):
 	train(nga, gen)
+	exit()
 	#nga.load('checkpoints')
 	create_sample_for_plot(nga, gen)
 
